@@ -281,3 +281,22 @@ def load_fact_payment(src, tgt, since=None):
            ["date_key_paid", "customer_key", "store_key", "staff_id", "amount"])
     log.info("fact_payment upsert %d rows", len(rows))
     return max((r.last_update for r in results), default=None)
+
+
+
+def max_last_update(src, model):
+    """Newest last_update in a source table."""
+    return src.scalar(select(func.max(model.last_update)))
+
+
+def save_markers(tgt, markers):
+    """Write sync_state markers."""
+    existing = {name: ts for name, ts in
+                tgt.execute(select(SyncState.source_table, SyncState.last_update)).all()}
+    rows = []
+    for name, new in markers.items():
+        old = existing.get(name)
+        best = max((v for v in (old, new) if v is not None), default=None)
+        rows.append({"source_table": name, "last_update": best})
+    upsert(tgt, SyncState, rows, ["source_table"], ["last_update"])
+    log.info("sync_state: %d markers saved", len(rows))
