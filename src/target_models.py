@@ -95,10 +95,10 @@ class FactRental(TargetBase):
     customer_key: Mapped[int] = mapped_column(ForeignKey("dim_customer.customer_key"))
     staff_id: Mapped[int]
     rental_duration_days: Mapped[int | None]
-    __table_args___ = (
+    __table_args__ = (
         Index("ux_fact_rental_rental_id", "rental_id", unique=True),
-        Index("ix_fact_rental_date_key_rented", "daye_key_rented"),
-        Index("ix_fact_rental_date_key_returned", "daye_key_returned"),
+        Index("ix_fact_rental_date_key_rented", "date_key_rented"),
+        Index("ix_fact_rental_date_key_returned", "date_key_returned"),
         Index("ix_fact_rental_film_key", "film_key"),
         Index("ix_fact_rental_store_key", "store_key"),
         Index("ix_fact_rental_customer_key", "customer_key")

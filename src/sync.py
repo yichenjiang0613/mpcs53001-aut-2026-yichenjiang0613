@@ -124,11 +124,160 @@ def load_dim_customer(src, tgt, since=None):
     customers = src.execute(q).all()
     rows = [
         {"customer_id": c.customer_id, "first_name": c.first_name,
-         "last_name": c.last_name, "active": int(c.active),
+         "last_name": c.last_name, "active": c.active,
          "city": c.city, "country": c.country, "last_update": c.last_update}
         for c in customers
     ]
     upsert(tgt, DimCustomer, rows, ["customer_id"],
            ["first_name", "last_name", "active", "city", "country", "last_update"])
-    log.info("dim_customer: %d rows upserted", len(rows))
+    log.info("dim_customer upsert %d rows", len(rows))
     return max((c.last_update for c in customers), default=None)
+
+
+
+def key_map(tgt, model, natural_col, key_col):
+    """{natural id: surrogate key} read back from a loaded dimension."""
+    stmt = select(getattr(model, natural_col), getattr(model, key_col))
+    return {nat: key for nat, key in tgt.execute(stmt).all()}
+
+
+def insert_missing(tgt, model, rows, key_cols, batch=100):
+    """Insert rows, skipping any that already exist (for bridges)."""
+    for i in range(0, len(rows), batch):
+        stmt = insert(model).values(rows[i:i + batch])
+        stmt = stmt.on_conflict_do_nothing(index_elements=key_cols)
+        tgt.execute(stmt)
+
+
+def load_bridge_film_actor(src, tgt, since=None):
+    film_keys = key_map(tgt, DimFilm, "film_id", "film_key")
+    actor_keys = key_map(tgt, DimActor, "actor_id", "actor_key")
+
+    stmt = select(FilmActor.film_id, FilmActor.actor_id, FilmActor.last_update)
+    if since is not None:
+        stmt = stmt.where(FilmActor.last_update >= since)
+    results = src.execute(stmt).all()
+
+    rows = []
+    for r in results:
+        if r.film_id not in film_keys or r.actor_id not in actor_keys:
+            raise ValueError(
+                f"film_actor ({r.film_id}, {r.actor_id}) has no matching dimension row")
+        rows.append({"film_key": film_keys[r.film_id],
+                     "actor_key": actor_keys[r.actor_id]})
+
+    insert_missing(tgt, BridgeFilmActor, rows, ["film_key", "actor_key"])
+    log.info("bridge_film_actor upsert %d rows", len(rows))
+    return max((r.last_update for r in results), default=None)
+
+
+def load_bridge_film_category(src, tgt, since=None):
+    film_keys = key_map(tgt, DimFilm, "film_id", "film_key")
+    category_keys = key_map(tgt, DimCategory, "category_id", "category_key")
+
+    stmt = select(FilmCategory.film_id, FilmCategory.category_id,
+                  FilmCategory.last_update)
+    if since is not None:
+        stmt = stmt.where(FilmCategory.last_update >= since)
+    results = src.execute(stmt).all()
+
+    rows = []
+    for r in results:
+        if r.film_id not in film_keys or r.category_id not in category_keys:
+            raise ValueError(
+                f"film_category ({r.film_id}, {r.category_id}) has no matching dimension row")
+        rows.append({"film_key": film_keys[r.film_id],
+                     "category_key": category_keys[r.category_id]})
+
+    insert_missing(tgt, BridgeFilmCategory, rows, ["film_key", "category_key"])
+    log.info("bridge_film_category upsert %d rows", len(rows))
+    return max((r.last_update for r in results), default=None)
+
+
+
+def load_fact_rental(src, tgt, since=None):
+    film_keys = key_map(tgt, DimFilm, "film_id", "film_key")
+    store_keys = key_map(tgt, DimStore, "store_id", "store_key")
+    customer_keys = key_map(tgt, DimCustomer, "customer_id", "customer_key")
+
+    stmt = (
+        select(Rental.rental_id, Rental.rental_date, Rental.return_date,
+               Rental.customer_id, Rental.staff_id, Rental.last_update,
+               Inventory.film_id, Inventory.store_id)
+        .select_from(Rental)
+        .join(Inventory, Rental.inventory_id == Inventory.inventory_id)
+    )
+    if since is not None:
+        stmt = stmt.where(or_(Rental.last_update >= since,
+                              Inventory.last_update >= since))
+    results = src.execute(stmt).all()
+
+    add_dates(tgt, [r.rental_date for r in results] + [r.return_date for r in results])
+
+    rows = []
+    for r in results:
+        try:
+            film_key = film_keys[r.film_id]
+            store_key = store_keys[r.store_id]
+            customer_key = customer_keys[r.customer_id]
+        except KeyError as exc:
+            raise ValueError(f"rental {r.rental_id}: no dimension row for {exc}") from exc
+        returned = r.return_date is not None
+        rows.append({
+            "rental_id": r.rental_id,
+            "date_key_rented": date_key(r.rental_date),
+            "date_key_returned": date_key(r.return_date) if returned else None,
+            "film_key": film_key,
+            "store_key": store_key,
+            "customer_key": customer_key,
+            "staff_id": r.staff_id,
+            "rental_duration_days":
+                (to_date(r.return_date) - to_date(r.rental_date)).days if returned else None,
+        })
+
+    upsert(tgt, FactRental, rows, ["rental_id"],
+           ["date_key_rented", "date_key_returned", "film_key", "store_key",
+            "customer_key", "staff_id", "rental_duration_days"])
+    log.info("fact_rental upsert %d rows", len(rows))
+    return max((r.last_update for r in results), default=None)
+
+
+def load_fact_payment(src, tgt, since=None):
+    store_keys = key_map(tgt, DimStore, "store_id", "store_key")
+    customer_keys = key_map(tgt, DimCustomer, "customer_id", "customer_key")
+
+    stmt = (
+        select(Payment.payment_id, Payment.customer_id, Payment.staff_id,
+               Payment.amount, Payment.payment_date, Payment.last_update,
+               func.coalesce(Inventory.store_id, Staff.store_id).label("store_id"))
+        .select_from(Payment)
+        .join(Rental, Payment.rental_id == Rental.rental_id, isouter=True)
+        .join(Inventory, Rental.inventory_id == Inventory.inventory_id, isouter=True)
+        .join(Staff, Payment.staff_id == Staff.staff_id)
+    )
+    if since is not None:
+        stmt = stmt.where(Payment.last_update >= since)
+    results = src.execute(stmt).all()
+
+    add_dates(tgt, [r.payment_date for r in results])
+
+    rows = []
+    for r in results:
+        try:
+            customer_key = customer_keys[r.customer_id]
+            store_key = store_keys[r.store_id]
+        except KeyError as exc:
+            raise ValueError(f"payment {r.payment_id}: no dimension row for {exc}") from exc
+        rows.append({
+            "payment_id": r.payment_id,
+            "date_key_paid": date_key(r.payment_date),
+            "customer_key": customer_key,
+            "store_key": store_key,
+            "staff_id": r.staff_id,
+            "amount": r.amount,
+        })
+
+    upsert(tgt, FactPayment, rows, ["payment_id"],
+           ["date_key_paid", "customer_key", "store_key", "staff_id", "amount"])
+    log.info("fact_payment upsert %d rows", len(rows))
+    return max((r.last_update for r in results), default=None)
