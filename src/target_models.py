@@ -20,18 +20,19 @@ class DimDate(TargetBase):
 
 class DimFilm(TargetBase):
     __tablename__ = "dim_film"
-    film_key: Mapped[int] = mapped_column(primary_key=True)
+    film_key: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     film_id: Mapped[int]
     title: Mapped[str]
     rating: Mapped[str]
     length: Mapped[int]
+    language: Mapped[str]
     release_year: Mapped[int]
     last_update: Mapped[datetime]
     __table_args__ = (Index("ux_dim_film_film_id", "film_id", unique = True),)
 
 class DimActor(TargetBase):
     __tablename__ = "dim_actor"
-    actor_key: Mapped[int] = mapped_column(primary_key=True)
+    actor_key: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     actor_id: Mapped[int]
     first_name: Mapped[str]
     last_name: Mapped[str]
@@ -58,7 +59,7 @@ class DimStore(TargetBase):
 
 class DimCustomer(TargetBase):
     __tablename__ = "dim_customer"
-    customer_key: Mapped[int] = mapped_column(primary_key=True)
+    customer_key: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     customer_id: Mapped[int]
     first_name: Mapped[str]
     last_name: Mapped[str]
@@ -85,7 +86,7 @@ class BridgeFilmCategory(TargetBase):
 
 class FactRental(TargetBase):
     __tablename__ = "fact_rental"
-    fact_rental_key: Mapped[int] = mapped_column(primary_key=True)
+    fact_rental_key: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     rental_id: Mapped[int]
     date_key_rented: Mapped[int] = mapped_column(ForeignKey("dim_date.date_key"))
     date_key_returned: Mapped[int | None] = mapped_column(ForeignKey("dim_date.date_key"))
