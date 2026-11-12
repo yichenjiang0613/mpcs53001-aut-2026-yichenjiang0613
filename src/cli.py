@@ -5,12 +5,14 @@ import sys
 from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from src.config import get_source_engine, get_target_engine
 from src.source_models import (Language, Payment, Rental, Address, City, Country,
     Inventory, Language, Staff)
 from src.target_models import DimDate, SyncState, TargetBase
 from src.dates import to_date, add_dates, date_range
+from src.validate import validation
 
 from src.sync import (
     load_dim_actor, load_dim_category, load_dim_film, load_dim_store,
@@ -84,6 +86,14 @@ def cmd_full_load(args) -> int:
 
         save_markers(tgt, markers)
 
+    with Session(src_engine) as src, Session(tgt_engine) as tgt:
+        problems = validation(src, tgt)
+    if problems:
+        for p in problems:
+            print("  - " + p)
+        print("full-load FAILED: validation found problems")   # "incremental" in the other command
+        return 1
+
     log.info("full-load committed")
     print("full-load finished")
     return 0
@@ -128,8 +138,37 @@ def cmd_incremental(args) -> int:
 
         save_markers(tgt, new)
 
+    with Session(src_engine) as src, Session(tgt_engine) as tgt:
+        problems = validation(src, tgt)
+    if problems:
+        for p in problems:
+            print("  - " + p)
+        print("full-load FAILED: validation found problems")   # "incremental" in the other command
+        return 1
+
     log.info("incremental committed")
     print("incremental finished")
+    return 0
+
+
+
+def _parse_day(text):
+    if text is None:
+        return None
+    return datetime.strptime(text, "%Y-%m-%d").date()
+
+
+def cmd_validate(args) -> int:
+    date_from = _parse_day(args.date_from)
+    date_to = _parse_day(args.date_to)
+    with Session(get_source_engine()) as src, Session(get_target_engine()) as tgt:
+        problems = validation(src, tgt, date_from, date_to)
+    if problems:
+        for p in problems:
+            print("  - " + p)
+        print(f"validate FAILED: {len(problems)} problem(s)")
+        return 1
+    print("validation success")
     return 0
 
 def cmd_not_ready(args) -> int:
@@ -147,7 +186,7 @@ def main(argv=None) -> int:
     v = sub.add_parser("validate")
     v.add_argument("--from", dest="date_from", metavar="YYYY-MM-DD")
     v.add_argument("--to", dest="date_to", metavar="YYYY-MM-DD")
-    v.set_defaults(func=cmd_not_ready)
+    v.set_defaults(func=cmd_validate)
 
     args = p.parse_args(argv)
     try:
