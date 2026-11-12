@@ -300,3 +300,10 @@ def save_markers(tgt, markers):
         rows.append({"source_table": name, "last_update": best})
     upsert(tgt, SyncState, rows, ["source_table"], ["last_update"])
     log.info("sync_state: %d markers saved", len(rows))
+
+
+
+def get_markers(tgt):
+    """{source_table: last_update or None} from sync_state."""
+    return {name: ts for name, ts in
+            tgt.execute(select(SyncState.source_table, SyncState.last_update)).all()}
