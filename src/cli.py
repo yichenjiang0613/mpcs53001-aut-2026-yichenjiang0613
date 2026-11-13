@@ -91,7 +91,7 @@ def cmd_full_load(args) -> int:
     if problems:
         for p in problems:
             print("  - " + p)
-        print("full-load FAILED: validation found problems")   # "incremental" in the other command
+        print("full-load FAILED: validation found problems") 
         return 1
 
     log.info("full-load committed")
@@ -143,7 +143,7 @@ def cmd_incremental(args) -> int:
     if problems:
         for p in problems:
             print("  - " + p)
-        print("full-load FAILED: validation found problems")   # "incremental" in the other command
+        print("incremental FAILED: validation found problems")
         return 1
 
     log.info("incremental committed")
@@ -168,7 +168,7 @@ def cmd_validate(args) -> int:
             print("  - " + p)
         print(f"validate FAILED: {len(problems)} problem(s)")
         return 1
-    print("validation success")
+    print("validation finished: all data match")
     return 0
 
 def cmd_not_ready(args) -> int:
