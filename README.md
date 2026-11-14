@@ -1,4 +1,3 @@
-cat > README.md << 'EOF'
 # Sakila to SQLite Analytics Sync
 
 A command-line data sync that reads the Sakila operational database (MySQL 8.0) through an ORM and writes a star-schema analytics database (SQLite) through an ORM. It supports an initial full load, incremental updates, and validation.
