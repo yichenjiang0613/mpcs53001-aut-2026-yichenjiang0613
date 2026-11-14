@@ -74,7 +74,7 @@ class BridgeFilmActor(TargetBase):
     film_key: Mapped[int] = mapped_column(
         ForeignKey("dim_film.film_key"), primary_key=True)
     actor_key: Mapped[int] = mapped_column(
-        ForeignKey("dim_actor.actor_id"), primary_key=True
+        ForeignKey("dim_actor.actor_key"), primary_key=True
     )
 
 class BridgeFilmCategory(TargetBase):
